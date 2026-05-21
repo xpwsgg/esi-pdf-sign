@@ -19,11 +19,15 @@ jobs:
           - label: macOS (universal .dmg)
             os: macos-latest
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-            tauri_args: --target universal-apple-darwin --bundles dmg
-          - label: Windows (.exe portable installer)
+            build_args: --target universal-apple-darwin --bundles dmg
+            artifact_glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            artifact_name_template: esi-pdf-sign-{tag}-macos-universal.dmg
+          - label: Windows portable (.exe)
             os: windows-latest
             rust_targets: ""
-            tauri_args: --bundles nsis
+            build_args: --no-bundle
+            artifact_glob: src-tauri/target/release/esi-pdf-sign.exe
+            artifact_name_template: esi-pdf-sign-{tag}-windows-x64-portable.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -61,17 +65,29 @@ jobs:
       - name: Generate platform icons (.icns / .ico)
         run: pnpm tauri icon src-tauri/icons/icon.png
 
-      - name: Build & publish Tauri release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Tauri app
+        run: pnpm tauri build ${{ matrix.build_args }}
+
+      - name: Stage artifact for release
+        shell: bash
+        run: |
+          mkdir -p staging
+          out_name=$(echo "${{ matrix.artifact_name_template }}" | sed "s/{tag}/${GITHUB_REF_NAME}/")
+          src=$(ls ${{ matrix.artifact_glob }} | head -1)
+          cp "$src" "staging/${out_name}"
+          ls -la staging
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "ESI PDF Sign ${{ github.ref_name }}"
-          releaseBody: |
+          tag_name: ${{ github.ref_name }}
+          name: ESI PDF Sign ${{ github.ref_name }}
+          body: |
             自动构建的 ESI 服务报告批量签名工具发布版。
-            - macOS: `.dmg` 安装包（Universal，Intel + Apple Silicon 通用）
-            - Windows: `.exe` 便携安装器（NSIS）
-          releaseDraft: false
+
+            - **macOS** — `*-macos-universal.dmg`：Intel + Apple Silicon 通用 DMG 安装包。
+            - **Windows** — `*-windows-x64-portable.exe`：**便携版，双击即用，无需安装**。
+              依赖 WebView2 Runtime（Windows 11 默认已带；Windows 10 1803 及以上通常已带）。
+          draft: false
           prerelease: false
-          args: ${{ matrix.tauri_args }}
+          files: staging/*
