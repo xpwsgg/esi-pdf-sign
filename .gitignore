@@ -36,3 +36,7 @@ signed/
 
 # OMC AI agent state
 .omc/
+
+# Tauri mobile icon variants — desktop-only project
+src-tauri/icons/android/
+src-tauri/icons/ios/
