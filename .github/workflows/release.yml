@@ -20,13 +20,13 @@ jobs:
             os: macos-latest
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
             build_args: --target universal-apple-darwin --bundles dmg
-            artifact_glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            artifact_glob: target/universal-apple-darwin/release/bundle/dmg/*.dmg
             artifact_name_template: esi-pdf-sign-{tag}-macos-universal.dmg
           - label: Windows portable (.exe)
             os: windows-latest
             rust_targets: ""
             build_args: --no-bundle
-            artifact_glob: src-tauri/target/release/esi-pdf-sign.exe
+            artifact_glob: target/release/esi-pdf-sign.exe
             artifact_name_template: esi-pdf-sign-{tag}-windows-x64-portable.exe
 
     runs-on: ${{ matrix.os }}
