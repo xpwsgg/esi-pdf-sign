@@ -32,6 +32,7 @@ Thumbs.db
 H5P9-*.pdf
 fixtures/*.png
 codestable/**/*.png
+signed/
 
 # OMC AI agent state
 .omc/

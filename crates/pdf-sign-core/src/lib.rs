@@ -26,7 +26,10 @@ pub enum SignResult {
 
 /// Sign one PDF by overlaying a signature PNG at the given spec.
 ///
-/// Returns the path of the freshly-written `<stem>_signed.<ext>` file.
+/// Returns the path of the freshly-written file. The signed PDF is placed in
+/// a `signed/` sub-directory next to the input PDF, keeping the original
+/// file name unchanged (so `/foo/bar.pdf` → `/foo/signed/bar.pdf`). The
+/// `signed/` directory is created on demand.
 pub fn sign_pdf(
     pdf_path: &Path,
     signature_png_path: &Path,
@@ -40,6 +43,12 @@ pub fn sign_pdf(
     overlay::overlay_signature_on_page(&mut doc, pdf_path, signature_png_path, spec)?;
 
     let output_path = make_signed_path(pdf_path);
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| SignError::OutputWriteFailed {
+            path: parent.to_path_buf(),
+            source: e,
+        })?;
+    }
     doc.save(&output_path).map_err(|e| SignError::OutputWriteFailed {
         path: output_path.clone(),
         source: e,
@@ -80,19 +89,16 @@ fn lopdf_err_to_io(e: lopdf::Error) -> std::io::Error {
     }
 }
 
-/// `/dir/stem.ext` -> `/dir/stem_signed.ext`. Falls back to `pdf` if no extension.
+/// `/dir/foo.ext` -> `/dir/signed/foo.ext`. File name (with extension) is
+/// preserved verbatim; only the parent gets an extra `signed/` segment.
+/// Falls back to the literal "output.pdf" if `input` has no file_name.
 fn make_signed_path(input: &Path) -> PathBuf {
-    let stem = input
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("output");
-    let ext = input
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("pdf");
-    let mut out = input.to_path_buf();
-    out.set_file_name(format!("{stem}_signed.{ext}"));
-    out
+    let parent = input.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = input
+        .file_name()
+        .map(std::ffi::OsStr::to_os_string)
+        .unwrap_or_else(|| std::ffi::OsString::from("output.pdf"));
+    parent.join("signed").join(file_name)
 }
 
 #[cfg(test)]
@@ -118,15 +124,18 @@ mod tests {
     }
 
     #[test]
-    fn make_signed_path_appends_suffix() {
+    fn make_signed_path_places_into_signed_subdir() {
         let p = PathBuf::from("/tmp/H5P9-foo.pdf");
-        assert_eq!(make_signed_path(&p), PathBuf::from("/tmp/H5P9-foo_signed.pdf"));
+        assert_eq!(
+            make_signed_path(&p),
+            PathBuf::from("/tmp/signed/H5P9-foo.pdf")
+        );
     }
 
     #[test]
-    fn make_signed_path_handles_no_extension() {
+    fn make_signed_path_keeps_filename_without_extension() {
         let p = PathBuf::from("/tmp/H5P9-foo");
-        assert_eq!(make_signed_path(&p), PathBuf::from("/tmp/H5P9-foo_signed.pdf"));
+        assert_eq!(make_signed_path(&p), PathBuf::from("/tmp/signed/H5P9-foo"));
     }
 
     #[test]
@@ -216,7 +225,8 @@ mod tests {
     #[test]
     fn sign_pdf_returns_output_write_failed_on_readonly_dir() {
         // Strategy: copy the input PDF into a read-only directory, then sign
-        // it — output should land in the same (read-only) dir and fail.
+        // it — `sign_pdf` will try to `mkdir <tmp>/signed` and fail on the
+        // read-only parent, which we map to OutputWriteFailed.
         let root = workspace_root();
         let input_master = root.join("H5P9-\u{4e94}\u{6708}.pdf");
         let sig = root.join("fixtures/zhang-xiang.png");
