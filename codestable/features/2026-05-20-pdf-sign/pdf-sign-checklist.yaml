@@ -1,0 +1,162 @@
+feature: 2026-05-20-pdf-sign
+created: 2026-05-20
+
+steps:
+  - action: "工程骨架:建 Cargo workspace + crates/pdf-sign-core 空 lib + src-tauri 默认模板 + src 前端骨架(vanilla TS + Vite)"
+    exit_signal: "cargo build 全绿,pnpm tauri dev 能打开空窗口"
+    status: done
+
+  - action: "编排骨架:core lib 实现 sign_pdf 但内部用 stub(直接复制原 PDF 加 _signed 后缀,不真贴图)"
+    exit_signal: "单测 1 条 - 输入存在的 PDF,输出 _signed.pdf 文件存在"
+    status: done
+
+  - action: "计算节点(核心):lopdf 加载 PDF + 嵌入 PNG XObject + content stream 追加绘制指令,真实贴图到 Page 2 配置坐标"
+    exit_signal: "单测 - 处理真实 H5P9 PDF,Preview 打开输出能看到签名图位于 ESI Engineer's Signature 上方"
+    status: done
+
+  - action: "批量 + 错误枚举:实现 sign_pdfs 串行循环 + SignError 4 分支 + SignResult 枚举"
+    exit_signal: "单测覆盖 4 类错误(PDF 损坏 / 页码超界 / 图片损坏 / 写失败)"
+    status: done
+
+  - action: "Tauri 后端集成:注册 sign_pdfs_cmd command + 从 templates.toml 加载 spec + progress event 推送"
+    exit_signal: "Tauri dev 模式下从前端 invoke 能拿到 Vec<SignResult> 结果"
+    status: done
+
+  - action: "前端 UI(静态结构 + 交互):index.html + main.ts 实现选 PDF / 选签名 / 签名按钮 / 进度列表 / 汇总显示"
+    exit_signal: "Tauri 窗口里完整跑通'选PDF→选签名→签名→看汇总'流程"
+    status: done
+
+  - action: "持久化:接入 tauri-plugin-store 记 last_signature_path,启动时读、选签名后写"
+    exit_signal: "重启应用后签名路径默认填上次选定值"
+    status: done
+
+  - action: "端到端验证:用真实 H5P9-五月.pdf + 张项签名跑完,Adobe Reader / Preview 打开输出确认视觉位置和不覆盖日期"
+    exit_signal: "验收契约 S1~S8 所有场景通过"
+    status: pending
+
+checks:
+  # 名词契约
+  - item: "SignSpec 含 page_index/x/y/width/height 5 字段,类型与 design 一致"
+    source: 名词契约
+    status: pending
+
+  - item: "sign_pdf 签名 = (pdf_path, signature_png_path, spec) -> Result<PathBuf, SignError>"
+    source: 名词契约
+    status: pending
+
+  - item: "sign_pdfs 签名 = (pdf_paths, signature_png_path, spec) -> Vec<SignResult>,永不抛错"
+    source: 名词契约
+    status: pending
+
+  - item: "SignError 枚举包含 PdfLoadFailed / PageOutOfRange / ImageLoadFailed / OutputWriteFailed 4 分支"
+    source: 名词契约
+    status: pending
+
+  - item: "SignResult 枚举包含 Ok{input,output} 和 Err{input,error} 两分支"
+    source: 名词契约
+    status: pending
+
+  # 编排骨架
+  - item: "主流程线性 pipeline:选PDF→选签名→点签名→串行循环→汇总"
+    source: 编排骨架
+    status: pending
+
+  - item: "core lib 内部串行处理,sign_pdfs 实现无并发(无 rayon / tokio::spawn / thread::spawn)"
+    source: 编排骨架
+    status: pending
+
+  - item: "进度通过 Tauri event 'sign://progress' 推前端,UI 显示 N/M 完成"
+    source: 编排骨架
+    status: pending
+
+  # 流程级约束
+  - item: "sign_pdfs 单 PDF 失败不影响后续,完整 Vec<SignResult> 返回"
+    source: 流程级约束
+    status: pending
+
+  - item: "重复签名同一 PDF 时,_signed.pdf 被覆盖(无版本号,无警告)"
+    source: 流程级约束
+    status: pending
+
+  - item: "templates.toml 应用启动时一次性加载,改配置需重启"
+    source: 流程级约束
+    status: pending
+
+  # 挂载点
+  - item: "Tauri command sign_pdfs_cmd 在 src-tauri/src/main.rs 的 generate_handler! 中已注册"
+    source: 挂载点
+    status: pending
+
+  - item: "src-tauri/tauri.conf.json 配置了 app.windows[0] 主窗口"
+    source: 挂载点
+    status: pending
+
+  - item: "tauri-plugin-store key 'last_signature_path' 可读可写,跨重启保留"
+    source: 挂载点
+    status: pending
+
+  - item: "templates.toml 落用户配置目录(macOS: ~/Library/Application Support/esi-pdf-sign/),首次启动自动创建默认模板"
+    source: 挂载点
+    status: pending
+
+  - item: "前端入口 src/index.html + src/main.ts 存在,Tauri 加载渲染正常"
+    source: 挂载点
+    status: pending
+
+  # 范围守护(明确不做的反向核对)
+  - item: "输出 PDF 不含 PKI 数字签名(pdfsig / Acrobat 签名面板验证)"
+    source: 范围守护
+    status: pending
+
+  - item: "输出 PDF 的 AcroForm / XFA 节点与输入 PDF 相同(qpdf --json 对比)"
+    source: 范围守护
+    status: pending
+
+  - item: "前端代码 grep 无 canvas 框选 / 拖拽逻辑(不做 UI 选位置)"
+    source: 范围守护
+    status: pending
+
+  - item: "core lib 代码 grep 无 OCR / 文本搜索 / 模板自动识别启发式"
+    source: 范围守护
+    status: pending
+
+  - item: "core lib 代码 grep 无 rayon / tokio::spawn / thread::spawn(本期无并发)"
+    source: 范围守护
+    status: pending
+
+  - item: "前端代码无 paint / draw / sign-pad 组件(不做签名图编辑器)"
+    source: 范围守护
+    status: pending
+
+  # 验收场景
+  - item: "S1: 选 1 份 H5P9-五月.pdf + 张项签名 → 同目录生成 _signed.pdf,签名位置正确,不覆盖日期"
+    source: 验收场景
+    status: pending
+
+  - item: "S2: 选 3 份 PDF 批量签 → 全部成功,UI 显示 3/3,进度按完成更新"
+    source: 验收场景
+    status: pending
+
+  - item: "S3: 选签名 A 后重启应用 → 签名路径默认填 A"
+    source: 验收场景
+    status: pending
+
+  - item: "S4: 对已签 PDF 再签 → _signed.pdf 被覆盖,本期默认不警告"
+    source: 验收场景
+    status: pending
+
+  - item: "S5: 加密 PDF 该文件失败,错误信息 'PDF 加密无法处理',其他正常 PDF 仍处理完成"
+    source: 验收场景
+    status: pending
+
+  - item: "S6: 1 页 PDF(非 H5P9) → 该文件失败,错误信息 '页码超界 / 模板不匹配',其他不受影响"
+    source: 验收场景
+    status: pending
+
+  - item: "S7: 选不存在或损坏的 PNG → 整批不启动,UI 报'签名图无法加载',不产生输出"
+    source: 验收场景
+    status: pending
+
+  - item: "S8: 输出目录无写权限 → 该文件失败,错误含 OS 错误码,其他正常"
+    source: 验收场景
+    status: pending

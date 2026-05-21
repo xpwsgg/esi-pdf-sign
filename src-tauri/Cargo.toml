@@ -1,0 +1,25 @@
+[package]
+name = "esi-pdf-sign"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "ESI PDF batch signer (Tauri desktop app)"
+
+[lib]
+name = "esi_pdf_sign_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-store = "2"
+tauri-plugin-dialog = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+dirs = "5"
+pdf-sign-core = { path = "../crates/pdf-sign-core" }

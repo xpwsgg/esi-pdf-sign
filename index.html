@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ESI 服务报告批量签名</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header>
+        <h1>ESI 服务报告批量签名</h1>
+      </header>
+
+      <section class="card steps">
+        <div class="step">
+          <div class="step-head">
+            <span class="step-index">1</span>
+            <div class="step-text">
+              <div class="step-title">选择 PDF 文件</div>
+              <span id="pdf-summary" class="meta">尚未选择</span>
+            </div>
+          </div>
+          <button id="pick-pdfs" class="btn btn-secondary">浏览 PDF…</button>
+        </div>
+
+        <div class="step">
+          <div class="step-head">
+            <span class="step-index">2</span>
+            <div class="step-text">
+              <div class="step-title">选择签名图片</div>
+              <span id="sig-path" class="meta">尚未选择</span>
+            </div>
+          </div>
+          <button id="pick-signature" class="btn btn-secondary">浏览图片…</button>
+        </div>
+      </section>
+
+      <section class="action-row">
+        <button id="sign" class="btn btn-primary" disabled>开始签名</button>
+        <span id="status" class="status"></span>
+      </section>
+
+      <section id="results-section" class="card results" hidden>
+        <h2>处理结果</h2>
+        <ul id="results"></ul>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
