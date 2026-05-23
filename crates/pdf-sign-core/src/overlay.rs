@@ -5,9 +5,11 @@
 //! 2. Split into RGB plane + alpha plane.
 //! 3. Zlib-compress each plane.
 //! 4. Create two PDF Image XObjects: main (DeviceRGB) + SMask (DeviceGray).
-//! 5. Register main XObject in target page's Resources/XObject dict.
+//! 5. Register main XObject in target page's Resources/XObject dict under a
+//!    caller-supplied name (unique per page so stacking multiple signatures
+//!    doesn't overwrite an earlier registration — see lib.rs::sign_pdf).
 //! 6. Append a tiny content stream to the page's Contents array:
-//!    `q  w 0 0 h x y cm  /SigImg Do  Q`.
+//!    `q  w 0 0 h x y cm  /<name> Do  Q`.
 
 use crate::error::SignError;
 use flate2::write::ZlibEncoder;
@@ -16,8 +18,6 @@ use image::ImageReader;
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use std::io::Write;
 use std::path::Path;
-
-const SIG_NAME: &[u8] = b"SigImg";
 
 /// Final placement of the signature in PDF-native coordinates (origin
 /// bottom-left, points). Computed in `lib.rs::sign_pdf` from a `SignSpec`
@@ -35,6 +35,7 @@ pub(crate) fn overlay_signature_on_page(
     pdf_path: &Path,
     sig_png_path: &Path,
     placement: &Placement,
+    xobject_name: &[u8],
 ) -> Result<(), SignError> {
     let (img_w, img_h, rgb, alpha) = load_png_rgba(sig_png_path)?;
     let rgb_z = zlib(&rgb);
@@ -52,8 +53,8 @@ pub(crate) fn overlay_signature_on_page(
         total,
     })?;
 
-    register_xobject_in_page_resources(doc, page_id, SIG_NAME, main_id);
-    append_draw_op_to_page_contents(doc, page_id, SIG_NAME, placement);
+    register_xobject_in_page_resources(doc, page_id, xobject_name, main_id);
+    append_draw_op_to_page_contents(doc, page_id, xobject_name, placement);
     Ok(())
 }
 
@@ -189,7 +190,7 @@ fn append_draw_op_to_page_contents(
     name: &[u8],
     placement: &Placement,
 ) {
-    let name_str = std::str::from_utf8(name).expect("SIG_NAME is ASCII");
+    let name_str = std::str::from_utf8(name).expect("xobject name is ASCII");
     // PDF content stream: q [save state] cm [transform] Do [draw XObject] Q [restore]
     // cm matrix: width 0 0 height x y  → maps 1×1 unit square to (x,y)-(x+w,y+h)
     let content_str = format!(

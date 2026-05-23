@@ -25,32 +25,53 @@ pub enum SignResult {
     Err { input: PathBuf, error: SignError },
 }
 
-/// Sign one PDF by overlaying a signature PNG at a position computed from
-/// the anchor text in `spec`.
+/// Sign one PDF by overlaying one or more signature PNGs, each placed
+/// relative to its own anchor text.
 ///
-/// Steps: load PDF → locate `spec.anchor_text` baseline on `spec.page_index`
-/// → place the signature image at `(anchor_x + dx, anchor_y + dy)` → save to
-/// the `signed/` sub-directory next to the input PDF (file name preserved,
-/// so `/foo/bar.pdf` → `/foo/signed/bar.pdf`).
+/// `signatures` is a slice of `(spec, png_path)` pairs — every pair stamps
+/// one signature on the document. They are applied in order onto the same
+/// in-memory `Document`, then the result is saved once to the `signed/`
+/// sub-directory next to the input PDF (file name preserved).
+///
+/// An empty slice produces a copy of the input PDF in `signed/` (no
+/// stamping). Callers that require at least one signature should check
+/// before invoking.
 pub fn sign_pdf(
     pdf_path: &Path,
-    signature_png_path: &Path,
-    spec: &SignSpec,
+    signatures: &[(&SignSpec, &Path)],
 ) -> Result<PathBuf, SignError> {
     let mut doc = Document::load(pdf_path).map_err(|e| SignError::PdfLoadFailed {
         path: pdf_path.to_path_buf(),
         source: lopdf_err_to_io(e),
     })?;
 
-    let (ax, ay) = anchor::find_anchor_baseline(&doc, pdf_path, spec.page_index, &spec.anchor_text)?;
-    let placement = overlay::Placement {
-        page_index: spec.page_index,
-        x: ax as f32 + spec.dx,
-        y: ay as f32 + spec.dy,
-        width: spec.width,
-        height: spec.height,
-    };
-    overlay::overlay_signature_on_page(&mut doc, pdf_path, signature_png_path, &placement)?;
+    for (i, (spec, sig_png)) in signatures.iter().enumerate() {
+        let (ax, ay) = anchor::find_anchor_baseline(
+            &doc,
+            pdf_path,
+            spec.page_index,
+            &spec.anchor_text,
+        )?;
+        let placement = overlay::Placement {
+            page_index: spec.page_index,
+            x: ax as f32 + spec.dx,
+            y: ay as f32 + spec.dy,
+            width: spec.width,
+            height: spec.height,
+        };
+        // Each signature needs its own XObject name; reusing one name across
+        // overlays would let the second registration overwrite the first in
+        // the page's Resources/XObject dict so both `Do` ops would render the
+        // last image.
+        let xobject_name = format!("SigImg{i}");
+        overlay::overlay_signature_on_page(
+            &mut doc,
+            pdf_path,
+            sig_png,
+            &placement,
+            xobject_name.as_bytes(),
+        )?;
+    }
 
     let output_path = make_signed_path(pdf_path);
     if let Some(parent) = output_path.parent() {
@@ -66,20 +87,18 @@ pub fn sign_pdf(
     Ok(output_path)
 }
 
-/// Sign many PDFs serially with the same signature image and spec.
+/// Sign many PDFs serially with the same signature set.
 ///
 /// Per design §2.2 flow constraints: this function **never panics** and
 /// **never returns Err**; each PDF's outcome is collected independently
-/// so a single failure does not abort the batch. Caller iterates the
-/// result vec to render success/failure UI.
+/// so a single failure does not abort the batch.
 pub fn sign_pdfs(
     pdf_paths: &[PathBuf],
-    signature_png_path: &Path,
-    spec: &SignSpec,
+    signatures: &[(&SignSpec, &Path)],
 ) -> Vec<SignResult> {
     pdf_paths
         .iter()
-        .map(|input| match sign_pdf(input, signature_png_path, spec) {
+        .map(|input| match sign_pdf(input, signatures) {
             Ok(output) => SignResult::Ok {
                 input: input.clone(),
                 output,
@@ -167,7 +186,7 @@ mod tests {
         // between the "Customer acknowledges" row (PDF y≈179) and the
         // "ESI Engineer's Signature" label (baseline PDF y≈100.2).
         let spec = default_spec();
-        let out = sign_pdf(&input, &sig, &spec).expect("overlay succeeds");
+        let out = sign_pdf(&input, &[(&spec, &sig)]).expect("overlay succeeds");
         assert!(out.exists(), "output file should exist at {out:?}");
         let in_size = std::fs::metadata(&input).unwrap().len();
         let out_size = std::fs::metadata(&out).unwrap().len();
@@ -184,7 +203,7 @@ mod tests {
     fn sign_pdf_returns_pdf_load_failed_on_missing_file() {
         let missing = PathBuf::from("/tmp/this-pdf-does-not-exist-9f3e2c.pdf");
         let sig = workspace_root().join("fixtures/zhang-xiang.png");
-        let err = sign_pdf(&missing, &sig, &default_spec()).expect_err("missing PDF should fail");
+        let err = sign_pdf(&missing, &[(&default_spec(), &sig)]).expect_err("missing PDF should fail");
         assert!(
             matches!(err, SignError::PdfLoadFailed { .. }),
             "expected PdfLoadFailed, got {err:?}"
@@ -204,7 +223,7 @@ mod tests {
             page_index: 99, // far beyond 2-page PDF
             ..default_spec()
         };
-        let err = sign_pdf(&input, &sig, &spec).expect_err("page 99 should fail");
+        let err = sign_pdf(&input, &[(&spec, &sig)]).expect_err("page 99 should fail");
         assert!(
             matches!(
                 err,
@@ -227,7 +246,7 @@ mod tests {
             return;
         }
         let bad_sig = PathBuf::from("/tmp/this-png-does-not-exist-7a91d4.png");
-        let err = sign_pdf(&input, &bad_sig, &default_spec())
+        let err = sign_pdf(&input, &[(&default_spec(), &bad_sig)])
             .expect_err("missing PNG should fail");
         assert!(
             matches!(err, SignError::ImageLoadFailed { .. }),
@@ -260,7 +279,7 @@ mod tests {
         perm.set_mode(0o555);
         std::fs::set_permissions(&tmp, perm.clone()).unwrap();
 
-        let res = sign_pdf(&pdf_in_tmp, &sig, &default_spec());
+        let res = sign_pdf(&pdf_in_tmp, &[(&default_spec(), &sig)]);
 
         // Restore permissions before assertion so cleanup never gets stuck.
         let mut restore = std::fs::metadata(&tmp).unwrap().permissions();
@@ -288,7 +307,7 @@ mod tests {
             anchor_text: "NoSuchAnchorXYZ".to_string(),
             ..default_spec()
         };
-        let err = sign_pdf(&input, &sig, &spec).expect_err("bogus anchor should fail");
+        let err = sign_pdf(&input, &[(&spec, &sig)]).expect_err("bogus anchor should fail");
         assert!(
             matches!(
                 &err,
@@ -296,6 +315,44 @@ mod tests {
                     if anchor == "NoSuchAnchorXYZ"
             ),
             "expected AnchorNotFound, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn sign_pdf_signs_engineer_and_customer_slots() {
+        let root = workspace_root();
+        let input = root.join("H5P9-\u{4e94}\u{6708}.pdf");
+        let sig = root.join("fixtures/zhang-xiang.png");
+        if !input.exists() || !sig.exists() {
+            eprintln!("test inputs not found, skipping");
+            return;
+        }
+        let engineer = default_spec();
+        let customer = SignSpec {
+            anchor_text: "Authorised Customer's Signature".to_string(),
+            ..default_spec()
+        };
+        let out =
+            sign_pdf(&input, &[(&engineer, &sig), (&customer, &sig)]).expect("dual sign succeeds");
+        assert!(out.exists(), "output exists at {out:?}");
+
+        // Regression guard: each signature must register a distinct XObject
+        // name. Reload and inspect page 2's content streams — both
+        // `/SigImg0 Do` and `/SigImg1 Do` should appear, otherwise the
+        // second overlay overwrote the first and both rendered the same
+        // image.
+        let doc = lopdf::Document::load(&out).expect("reload signed pdf");
+        let pages = doc.get_pages();
+        let page_id = *pages.get(&2).expect("page 2 exists");
+        let bytes = doc.get_page_content(page_id).expect("page content");
+        let stream = String::from_utf8_lossy(&bytes);
+        assert!(
+            stream.contains("/SigImg0 Do"),
+            "page 2 content should reference /SigImg0, got: {stream}"
+        );
+        assert!(
+            stream.contains("/SigImg1 Do"),
+            "page 2 content should reference /SigImg1, got: {stream}"
         );
     }
 
@@ -313,7 +370,7 @@ mod tests {
         let bad = PathBuf::from("/tmp/missing-pdf-batch-test-3c5e.pdf");
         let inputs = vec![good.clone(), bad.clone(), good.clone()];
 
-        let results = sign_pdfs(&inputs, &sig, &default_spec());
+        let results = sign_pdfs(&inputs, &[(&default_spec(), &sig)]);
         assert_eq!(results.len(), 3, "should produce one result per input");
         assert!(matches!(results[0], SignResult::Ok { .. }), "first should succeed");
         assert!(
