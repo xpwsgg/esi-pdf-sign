@@ -10,7 +10,6 @@
 //!    `q  w 0 0 h x y cm  /SigImg Do  Q`.
 
 use crate::error::SignError;
-use crate::spec::SignSpec;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use image::ImageReader;
@@ -20,11 +19,22 @@ use std::path::Path;
 
 const SIG_NAME: &[u8] = b"SigImg";
 
+/// Final placement of the signature in PDF-native coordinates (origin
+/// bottom-left, points). Computed in `lib.rs::sign_pdf` from a `SignSpec`
+/// plus the located anchor baseline.
+pub(crate) struct Placement {
+    pub page_index: usize,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
 pub(crate) fn overlay_signature_on_page(
     doc: &mut Document,
     pdf_path: &Path,
     sig_png_path: &Path,
-    spec: &SignSpec,
+    placement: &Placement,
 ) -> Result<(), SignError> {
     let (img_w, img_h, rgb, alpha) = load_png_rgba(sig_png_path)?;
     let rgb_z = zlib(&rgb);
@@ -34,16 +44,16 @@ pub(crate) fn overlay_signature_on_page(
     let main_id = add_image_xobject(doc, img_w, img_h, "DeviceRGB", rgb_z, Some(smask_id));
 
     let pages = doc.get_pages();
-    let page_num = (spec.page_index + 1) as u32;
+    let page_num = (placement.page_index + 1) as u32;
     let total = pages.len();
     let page_id = *pages.get(&page_num).ok_or_else(|| SignError::PageOutOfRange {
         path: pdf_path.to_path_buf(),
-        requested: spec.page_index,
+        requested: placement.page_index,
         total,
     })?;
 
     register_xobject_in_page_resources(doc, page_id, SIG_NAME, main_id);
-    append_draw_op_to_page_contents(doc, page_id, SIG_NAME, spec);
+    append_draw_op_to_page_contents(doc, page_id, SIG_NAME, placement);
     Ok(())
 }
 
@@ -177,17 +187,17 @@ fn append_draw_op_to_page_contents(
     doc: &mut Document,
     page_id: ObjectId,
     name: &[u8],
-    spec: &SignSpec,
+    placement: &Placement,
 ) {
     let name_str = std::str::from_utf8(name).expect("SIG_NAME is ASCII");
     // PDF content stream: q [save state] cm [transform] Do [draw XObject] Q [restore]
     // cm matrix: width 0 0 height x y  → maps 1×1 unit square to (x,y)-(x+w,y+h)
     let content_str = format!(
         "q\n{w} 0 0 {h} {x} {y} cm\n/{n} Do\nQ\n",
-        w = spec.width,
-        h = spec.height,
-        x = spec.x,
-        y = spec.y,
+        w = placement.width,
+        h = placement.height,
+        x = placement.x,
+        y = placement.y,
         n = name_str,
     );
     let stream = Stream::new(dictionary! {}, content_str.into_bytes());

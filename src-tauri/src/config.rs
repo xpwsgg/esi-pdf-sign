@@ -15,17 +15,26 @@ const TEMPLATES_FILE: &str = "templates.toml";
 
 const DEFAULT_TOML: &str = r#"# ESI PDF Sign — template definitions.
 # Each [[template]] maps a PDF template (matched by page count) to where the
-# signature image should be drawn. Coordinates are in PDF points; origin is the
-# bottom-left of the page, y increases upward.
+# signature image should be drawn. Coordinates are PDF points (1 pt = 1/72 in)
+# and are computed RELATIVE to a text anchor on the page, so the signature
+# stays put even when the form's vertical layout shifts between revisions.
+#
+# At sign time we search `anchor_text` verbatim in the target page's content
+# stream; the signature image's bottom-left corner is then drawn at
+# (anchor_x + dx, anchor_baseline_y + dy), with PDF origin at the page's
+# bottom-left and y increasing upward.
 
 [[template]]
 name = "H5P9"
 match_pages = 2
 
 [template.signature]
-page_index = 1     # 0-based; H5P9 signs on page 2
-x = 466.3
-y = 122.8          # vertically centered between "Customer acknowledges" line (PDF y≈179) and "ESI Engineer's Signature" label (PDF y≈106.6); aligns with the cell's "May 20, 2026" baseline
+page_index = 1                       # 0-based: H5P9 signs on page 2
+anchor_text = "ESI Engineer's Signature"
+dx = 0.0                             # signature x = anchor's first-char x (= 466.305 pt)
+dy = 22.634                          # raise box above the label baseline so the
+                                     # signature sits inside the cell, below the
+                                     # "Customer acknowledges" row
 width = 106.7
 height = 40.0
 "#;

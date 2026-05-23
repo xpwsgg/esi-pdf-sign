@@ -39,7 +39,7 @@ pub async fn sign_pdfs_cmd(
     let template = cfg
         .find(&template_name)
         .ok_or_else(|| format!("unknown template: {template_name}"))?;
-    let spec = template.signature;
+    let spec = &template.signature;
 
     let sig_path = PathBuf::from(&signature_path);
     let inputs: Vec<PathBuf> = pdf_paths.iter().map(PathBuf::from).collect();
@@ -47,7 +47,7 @@ pub async fn sign_pdfs_cmd(
     let mut results = Vec::with_capacity(total);
 
     for (i, input) in inputs.iter().enumerate() {
-        let cmd_result = match sign_pdf(input, &sig_path, &spec) {
+        let cmd_result = match sign_pdf(input, &sig_path, spec) {
             Ok(output) => CmdSignResult {
                 input: input.display().to_string(),
                 output: Some(output.display().to_string()),

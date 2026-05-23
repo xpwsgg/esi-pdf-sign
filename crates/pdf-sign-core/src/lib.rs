@@ -8,6 +8,7 @@
 //! Works on XFA-form PDFs by operating on page content streams only.
 
 pub mod error;
+mod anchor;
 mod overlay;
 pub mod spec;
 
@@ -24,12 +25,13 @@ pub enum SignResult {
     Err { input: PathBuf, error: SignError },
 }
 
-/// Sign one PDF by overlaying a signature PNG at the given spec.
+/// Sign one PDF by overlaying a signature PNG at a position computed from
+/// the anchor text in `spec`.
 ///
-/// Returns the path of the freshly-written file. The signed PDF is placed in
-/// a `signed/` sub-directory next to the input PDF, keeping the original
-/// file name unchanged (so `/foo/bar.pdf` → `/foo/signed/bar.pdf`). The
-/// `signed/` directory is created on demand.
+/// Steps: load PDF → locate `spec.anchor_text` baseline on `spec.page_index`
+/// → place the signature image at `(anchor_x + dx, anchor_y + dy)` → save to
+/// the `signed/` sub-directory next to the input PDF (file name preserved,
+/// so `/foo/bar.pdf` → `/foo/signed/bar.pdf`).
 pub fn sign_pdf(
     pdf_path: &Path,
     signature_png_path: &Path,
@@ -40,7 +42,15 @@ pub fn sign_pdf(
         source: lopdf_err_to_io(e),
     })?;
 
-    overlay::overlay_signature_on_page(&mut doc, pdf_path, signature_png_path, spec)?;
+    let (ax, ay) = anchor::find_anchor_baseline(&doc, pdf_path, spec.page_index, &spec.anchor_text)?;
+    let placement = overlay::Placement {
+        page_index: spec.page_index,
+        x: ax as f32 + spec.dx,
+        y: ay as f32 + spec.dy,
+        width: spec.width,
+        height: spec.height,
+    };
+    overlay::overlay_signature_on_page(&mut doc, pdf_path, signature_png_path, &placement)?;
 
     let output_path = make_signed_path(pdf_path);
     if let Some(parent) = output_path.parent() {
@@ -116,8 +126,12 @@ mod tests {
     fn default_spec() -> SignSpec {
         SignSpec {
             page_index: 1,
-            x: 466.3,
-            y: 122.8,
+            anchor_text: "ESI Engineer's Signature".to_string(),
+            // Locked to the H5P9 layout: anchor baseline lives at PDF-y ≈ 100.166
+            // on page 2, signature bottom sits at PDF-y ≈ 122.8 — so dy = 22.634
+            // raises the box that far above the baseline.
+            dx: 0.0,
+            dy: 22.634,
             width: 106.7,
             height: 40.0,
         }
@@ -148,11 +162,10 @@ mod tests {
             return;
         }
 
-        // PDF coordinate (origin bottom-left).
-        // Signature box is vertically centered inside the cell between
-        // "Customer acknowledges" row (PDF y≈179) and the "ESI Engineer's
-        // Signature" label (PDF y≈106.6); the cell's "May 20, 2026" baseline
-        // sits at PDF y≈143, which we align the signature midline to.
+        // Anchor-relative: signature box sits at (anchor_x + 0, anchor_baseline + 22.634).
+        // For H5P9 page 2 that resolves to PDF-y ≈ 122.8, matching the cell layout
+        // between the "Customer acknowledges" row (PDF y≈179) and the
+        // "ESI Engineer's Signature" label (baseline PDF y≈100.2).
         let spec = default_spec();
         let out = sign_pdf(&input, &sig, &spec).expect("overlay succeeds");
         assert!(out.exists(), "output file should exist at {out:?}");
@@ -259,6 +272,30 @@ mod tests {
         assert!(
             matches!(err, SignError::OutputWriteFailed { .. }),
             "expected OutputWriteFailed, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn sign_pdf_returns_anchor_not_found() {
+        let root = workspace_root();
+        let input = root.join("H5P9-\u{4e94}\u{6708}.pdf");
+        let sig = root.join("fixtures/zhang-xiang.png");
+        if !input.exists() || !sig.exists() {
+            eprintln!("test inputs not found, skipping");
+            return;
+        }
+        let spec = SignSpec {
+            anchor_text: "NoSuchAnchorXYZ".to_string(),
+            ..default_spec()
+        };
+        let err = sign_pdf(&input, &sig, &spec).expect_err("bogus anchor should fail");
+        assert!(
+            matches!(
+                &err,
+                SignError::AnchorNotFound { anchor, page_index: 1, .. }
+                    if anchor == "NoSuchAnchorXYZ"
+            ),
+            "expected AnchorNotFound, got {err:?}"
         );
     }
 

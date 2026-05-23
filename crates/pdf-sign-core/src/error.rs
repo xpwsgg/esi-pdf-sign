@@ -34,4 +34,19 @@ pub enum SignError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("Failed to read page {page_index} content stream at {path}: {source}")]
+    ContentStreamRead {
+        path: PathBuf,
+        page_index: usize,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("Anchor text {anchor:?} not found on page {page_index} at {path}")]
+    AnchorNotFound {
+        path: PathBuf,
+        anchor: String,
+        page_index: usize,
+    },
 }
