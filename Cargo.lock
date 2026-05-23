@@ -836,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "esi-pdf-sign"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "dirs 5.0.1",
  "pdf-sign-core",
@@ -2365,7 +2365,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-sign-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "flate2",
