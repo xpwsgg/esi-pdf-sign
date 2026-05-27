@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { open } from "@tauri-apps/plugin-dialog"
+import { revealItemInDir } from "@tauri-apps/plugin-opener"
 import { load, type Store } from "@tauri-apps/plugin-store"
 
 /** Mirror of `CmdSignResult` returned by the Rust backend. */
@@ -42,6 +43,12 @@ async function persistKey(key: string, value: string): Promise<void> {
   await store.save()
 }
 
+async function clearKey(key: string): Promise<void> {
+  if (!store) return
+  await store.delete(key)
+  await store.save()
+}
+
 function $<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id)
   if (!el) throw new Error(`Missing element #${id}`)
@@ -51,6 +58,8 @@ function $<T extends HTMLElement>(id: string): T {
 const pickPdfsBtn = $<HTMLButtonElement>("pick-pdfs")
 const pickEngineerSigBtn = $<HTMLButtonElement>("pick-engineer-signature")
 const pickCustomerSigBtn = $<HTMLButtonElement>("pick-customer-signature")
+const clearEngineerSigBtn = $<HTMLButtonElement>("clear-engineer-signature")
+const clearCustomerSigBtn = $<HTMLButtonElement>("clear-customer-signature")
 const signBtn = $<HTMLButtonElement>("sign")
 const pdfSummary = $("pdf-summary")
 const engineerSigPath = $("engineer-sig-path")
@@ -87,6 +96,8 @@ function updateSigSummaries() {
   customerSigPath.textContent = state.customerSignaturePath
     ? basename(state.customerSignaturePath)
     : "尚未选择"
+  clearEngineerSigBtn.hidden = state.engineerSignaturePath === null
+  clearCustomerSigBtn.hidden = state.customerSignaturePath === null
 }
 
 pickPdfsBtn.addEventListener("click", async () => {
@@ -127,28 +138,55 @@ pickCustomerSigBtn.addEventListener("click", async () => {
   void persistKey(CUSTOMER_SIG_KEY, p)
 })
 
+clearEngineerSigBtn.addEventListener("click", () => {
+  state.engineerSignaturePath = null
+  updateSigSummaries()
+  updateSignEnabled()
+  void clearKey(ENGINEER_SIG_KEY)
+})
+
+clearCustomerSigBtn.addEventListener("click", () => {
+  state.customerSignaturePath = null
+  updateSigSummaries()
+  updateSignEnabled()
+  void clearKey(CUSTOMER_SIG_KEY)
+})
+
 let unlistenProgress: UnlistenFn | null = null
 
 function renderResultItem(r: CmdSignResult) {
   const li = document.createElement("li")
   const icon = document.createElement("span")
   const file = document.createElement("span")
-  const detail = document.createElement("span")
   file.className = "file"
   file.textContent = basename(r.input)
-  detail.className = "detail"
+  li.appendChild(icon)
+  li.appendChild(file)
+
   if (r.output) {
     icon.className = "icon-ok"
     icon.textContent = "✓"
-    detail.textContent = `→ ${basename(r.output)}`
+    const reveal = document.createElement("button")
+    reveal.type = "button"
+    reveal.className = "btn btn-ghost reveal"
+    reveal.textContent = "在文件夹中显示"
+    reveal.title = r.output
+    const output = r.output
+    reveal.addEventListener("click", () => {
+      revealItemInDir(output).catch((err) => {
+        console.error("revealItemInDir failed:", err)
+      })
+    })
+    li.appendChild(reveal)
   } else {
     icon.className = "icon-err"
     icon.textContent = "✗"
+    const detail = document.createElement("span")
+    detail.className = "detail"
     detail.textContent = r.error ?? "(unknown error)"
+    li.appendChild(detail)
   }
-  li.appendChild(icon)
-  li.appendChild(file)
-  li.appendChild(detail)
+
   resultsList.appendChild(li)
 }
 
@@ -159,6 +197,8 @@ signBtn.addEventListener("click", async () => {
   pickPdfsBtn.disabled = true
   pickEngineerSigBtn.disabled = true
   pickCustomerSigBtn.disabled = true
+  clearEngineerSigBtn.disabled = true
+  clearCustomerSigBtn.disabled = true
   resultsList.innerHTML = ""
   resultsSection.removeAttribute("hidden")
   statusEl.textContent = `0/${state.pdfPaths.length}…`
@@ -198,6 +238,8 @@ signBtn.addEventListener("click", async () => {
     pickPdfsBtn.disabled = false
     pickEngineerSigBtn.disabled = false
     pickCustomerSigBtn.disabled = false
+    clearEngineerSigBtn.disabled = false
+    clearCustomerSigBtn.disabled = false
     updateSignEnabled()
   }
 })
