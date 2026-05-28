@@ -78,8 +78,9 @@ jobs:
           ls -la staging
 
       - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.2.2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ github.ref_name }}
           name: ESI PDF Sign ${{ github.ref_name }}
           body: |
