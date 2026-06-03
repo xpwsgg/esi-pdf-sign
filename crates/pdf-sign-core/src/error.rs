@@ -49,4 +49,7 @@ pub enum SignError {
         anchor: String,
         page_index: usize,
     },
+
+    #[error("No QTY worktime table found in any page at {path}")]
+    WorktimeTableNotFound { path: PathBuf },
 }

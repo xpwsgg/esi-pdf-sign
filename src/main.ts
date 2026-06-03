@@ -17,6 +17,25 @@ interface ProgressEvent {
   last: CmdSignResult
 }
 
+/** Mirror of `CmdWorktime*` returned by the Rust backend. */
+interface CmdWorktimeRow {
+  part_number: string
+  description: string
+  qty: number
+}
+
+interface CmdWorktime {
+  input: string
+  rows: CmdWorktimeRow[] | null
+  total: number | null
+  error: string | null
+}
+
+interface CmdWorktimeBatch {
+  items: CmdWorktime[]
+  grand_total: number
+}
+
 const TEMPLATE_NAME = "H5P9"
 const STORE_FILE = "settings.json"
 const ENGINEER_SIG_KEY = "last_engineer_signature_path"
@@ -67,6 +86,9 @@ const customerSigPath = $("customer-sig-path")
 const statusEl = $("status")
 const resultsSection = $("results-section")
 const resultsList = $<HTMLUListElement>("results")
+const worktimeSection = $("worktime-section")
+const worktimeGrand = $("worktime-grand")
+const worktimeBody = $("worktime-body")
 
 function basename(p: string): string {
   const norm = p.replace(/\\/g, "/")
@@ -109,7 +131,101 @@ pickPdfsBtn.addEventListener("click", async () => {
   state.pdfPaths = Array.isArray(picked) ? picked : [picked]
   updatePdfSummary()
   updateSignEnabled()
+  void loadWorktimes()
 })
+
+function renderWorktime(batch: CmdWorktimeBatch) {
+  worktimeBody.innerHTML = ""
+  worktimeGrand.innerHTML = ""
+  worktimeGrand.setAttribute("hidden", "")
+  if (batch.items.length === 0) {
+    worktimeSection.setAttribute("hidden", "")
+    return
+  }
+
+  for (const item of batch.items) {
+    const block = document.createElement("div")
+    block.className = "wt-item"
+
+    const head = document.createElement("div")
+    head.className = "wt-item-head"
+    const name = document.createElement("span")
+    name.className = "wt-file"
+    name.textContent = basename(item.input)
+    head.appendChild(name)
+
+    if (item.error) {
+      const err = document.createElement("span")
+      err.className = "wt-error"
+      err.textContent = item.error
+      head.appendChild(err)
+      block.appendChild(head)
+    } else {
+      const sub = document.createElement("span")
+      sub.className = "wt-subtotal"
+      sub.textContent = `${item.total ?? 0} 小时`
+      head.appendChild(sub)
+      block.appendChild(head)
+
+      const rows = item.rows ?? []
+      if (rows.length > 0) {
+        const ul = document.createElement("ul")
+        ul.className = "wt-rows"
+        for (const r of rows) {
+          const li = document.createElement("li")
+          const desc = document.createElement("span")
+          desc.className = "wt-desc"
+          desc.textContent = r.description || r.part_number || "(未命名)"
+          const qty = document.createElement("span")
+          qty.className = "wt-qty"
+          qty.textContent = String(r.qty)
+          li.appendChild(desc)
+          li.appendChild(qty)
+          ul.appendChild(li)
+        }
+        block.appendChild(ul)
+      }
+    }
+    worktimeBody.appendChild(block)
+  }
+
+  const label = document.createElement("span")
+  label.textContent = "合计工时"
+  const val = document.createElement("span")
+  val.className = "wt-grand-val"
+  val.textContent = `${batch.grand_total} 小时`
+  worktimeGrand.appendChild(label)
+  worktimeGrand.appendChild(val)
+  worktimeGrand.removeAttribute("hidden")
+
+  worktimeSection.removeAttribute("hidden")
+}
+
+async function loadWorktimes(): Promise<void> {
+  if (state.pdfPaths.length === 0) {
+    worktimeSection.setAttribute("hidden", "")
+    return
+  }
+  worktimeBody.innerHTML = ""
+  worktimeSection.removeAttribute("hidden")
+  const loading = document.createElement("div")
+  loading.className = "wt-loading"
+  loading.textContent = "正在统计工时…"
+  worktimeBody.appendChild(loading)
+
+  try {
+    const batch: CmdWorktimeBatch = await invoke("extract_worktimes_cmd", {
+      pdfPaths: state.pdfPaths,
+    })
+    renderWorktime(batch)
+  } catch (err) {
+    worktimeBody.innerHTML = ""
+    const e = document.createElement("div")
+    e.className = "wt-error"
+    e.textContent = `工时统计失败:${String(err)}`
+    worktimeBody.appendChild(e)
+  }
+}
 
 async function pickPng(): Promise<string | null> {
   const picked = await open({

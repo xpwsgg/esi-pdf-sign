@@ -296,3 +296,102 @@ header h1 {
   border-color: var(--primary-soft);
   color: var(--primary-hover);
 }
+
+/* Worktime (QTY) statistics */
+.worktime {
+  margin-top: 16px;
+  padding: 18px 20px;
+}
+
+.worktime h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+
+.wt-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.wt-item:last-child {
+  border-bottom: none;
+}
+
+.wt-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.wt-file {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.wt-subtotal {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.wt-rows {
+  list-style: none;
+  padding: 6px 0 2px;
+  margin: 0;
+}
+
+.wt-rows li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.wt-desc {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wt-qty {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.wt-grand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.wt-grand-val {
+  color: var(--primary);
+  font-size: 15px;
+}
+
+.wt-loading {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.wt-error {
+  color: var(--danger);
+  font-size: 12.5px;
+}

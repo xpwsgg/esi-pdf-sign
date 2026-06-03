@@ -11,9 +11,12 @@ pub mod error;
 mod anchor;
 mod overlay;
 pub mod spec;
+mod text_scan;
+pub mod worktime;
 
 pub use error::SignError;
 pub use spec::SignSpec;
+pub use worktime::{extract_worktime, extract_worktimes, PdfWorktime, RowDetail, WorktimeResult};
 
 use lopdf::Document;
 use std::path::{Path, PathBuf};
@@ -42,7 +45,7 @@ pub fn sign_pdf(
 ) -> Result<PathBuf, SignError> {
     let mut doc = Document::load(pdf_path).map_err(|e| SignError::PdfLoadFailed {
         path: pdf_path.to_path_buf(),
-        source: lopdf_err_to_io(e),
+        source: text_scan::lopdf_err_to_io(e),
     })?;
 
     for (i, (spec, sig_png)) in signatures.iter().enumerate() {
@@ -109,13 +112,6 @@ pub fn sign_pdfs(
             },
         })
         .collect()
-}
-
-fn lopdf_err_to_io(e: lopdf::Error) -> std::io::Error {
-    match e {
-        lopdf::Error::IO(io) => io,
-        other => std::io::Error::new(std::io::ErrorKind::InvalidData, other.to_string()),
-    }
 }
 
 /// `/dir/foo.ext` -> `/dir/signed/foo.ext`. File name (with extension) is

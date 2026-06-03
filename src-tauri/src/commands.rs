@@ -6,7 +6,7 @@
 //! each file (per design §2.2 流程级约束).
 
 use crate::config;
-use pdf_sign_core::{sign_pdf, SignSpec};
+use pdf_sign_core::{extract_worktimes, sign_pdf, SignSpec, WorktimeResult};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -87,4 +87,74 @@ pub async fn sign_pdfs_cmd(
     }
 
     Ok(results)
+}
+
+// ---- Worktime (QTY column) extraction ----
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CmdWorktimeRow {
+    pub part_number: String,
+    pub description: String,
+    pub qty: f64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CmdWorktime {
+    pub input: String,
+    pub rows: Option<Vec<CmdWorktimeRow>>,
+    pub total: Option<f64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CmdWorktimeBatch {
+    pub items: Vec<CmdWorktime>,
+    pub grand_total: f64,
+}
+
+/// Tauri command: extract worktime (the QTY column) from each PDF.
+///
+/// Mirrors `extract_worktimes` batch semantics — one item per input, and a
+/// single failure is reported in that item's `error` field without aborting
+/// the rest. `grand_total` sums the totals of all successfully-parsed PDFs.
+#[tauri::command]
+pub async fn extract_worktimes_cmd(
+    pdf_paths: Vec<String>,
+) -> Result<CmdWorktimeBatch, String> {
+    let inputs: Vec<PathBuf> = pdf_paths.iter().map(PathBuf::from).collect();
+    let mut items = Vec::with_capacity(inputs.len());
+    let mut grand_total = 0.0_f64;
+
+    for result in extract_worktimes(&inputs) {
+        let item = match result {
+            WorktimeResult::Ok { input, worktime } => {
+                grand_total += worktime.total;
+                CmdWorktime {
+                    input: input.display().to_string(),
+                    rows: Some(
+                        worktime
+                            .rows
+                            .into_iter()
+                            .map(|d| CmdWorktimeRow {
+                                part_number: d.part_number,
+                                description: d.description,
+                                qty: d.qty,
+                            })
+                            .collect(),
+                    ),
+                    total: Some(worktime.total),
+                    error: None,
+                }
+            }
+            WorktimeResult::Err { input, error } => CmdWorktime {
+                input: input.display().to_string(),
+                rows: None,
+                total: None,
+                error: Some(error.to_string()),
+            },
+        };
+        items.push(item);
+    }
+
+    Ok(CmdWorktimeBatch { items, grand_total })
 }
