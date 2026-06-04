@@ -37,6 +37,9 @@ signed/
 # OMC AI agent state
 .omc/
 
+# Codegraph local index database
+.codegraph/
+
 # Tauri mobile icon variants — desktop-only project
 src-tauri/icons/android/
 src-tauri/icons/ios/
