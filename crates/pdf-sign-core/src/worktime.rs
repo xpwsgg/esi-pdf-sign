@@ -49,17 +49,32 @@ pub fn extract_worktime(pdf_path: &Path) -> Result<PdfWorktime, SignError> {
     page_nums.sort_unstable();
 
     let mut pages: Vec<Vec<Chunk>> = Vec::with_capacity(page_nums.len());
+    let mut first_decode_error: Option<SignError> = None;
     for page_num in page_nums {
         let page_index = (page_num - 1) as usize;
         // A single page that fails to decode must not sink the whole report.
-        if let Ok(chunks) = page_chunks(&doc, pdf_path, page_index) {
-            pages.push(chunks);
+        match page_chunks(&doc, pdf_path, page_index) {
+            Ok(chunks) => pages.push(chunks),
+            Err(e) if first_decode_error.is_none() => first_decode_error = Some(e),
+            Err(_) => {} // Already captured first error
         }
     }
 
-    worktime_from_pages(&pages).ok_or(SignError::WorktimeTableNotFound {
-        path: pdf_path.to_path_buf(),
-    })
+    match worktime_from_pages(&pages) {
+        Some(wt) => Ok(wt),
+        None => {
+            if let Some(decode_err) = first_decode_error {
+                Err(SignError::WorktimeTableNotFoundWithDecodeErrors {
+                    path: pdf_path.to_path_buf(),
+                    decode_errors: format!("{}", decode_err),
+                })
+            } else {
+                Err(SignError::WorktimeTableNotFound {
+                    path: pdf_path.to_path_buf(),
+                })
+            }
+        }
+    }
 }
 
 /// Extract worktime for many PDFs serially.
