@@ -1037,6 +1037,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-store",
+ "tempfile",
  "thiserror 1.0.69",
  "toml 0.8.2",
 ]
@@ -2662,6 +2663,7 @@ dependencies = [
  "image",
  "lopdf",
  "serde",
+ "tempfile",
  "thiserror 1.0.69",
  "toml 0.8.2",
 ]

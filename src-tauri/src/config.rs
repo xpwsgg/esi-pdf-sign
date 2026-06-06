@@ -164,30 +164,22 @@ pub enum ConfigError {
 mod tests {
     use super::*;
 
-    fn unique_tmp() -> PathBuf {
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("esi-pdf-sign-cfg-{ts}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir.join("templates.toml")
-    }
-
     #[test]
     fn first_launch_writes_default_and_parses() {
-        let path = unique_tmp();
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("templates.toml");
         let cfg = load_or_create_at(&path).expect("first launch ok");
         assert!(path.exists(), "default file written");
         assert_eq!(cfg.templates.len(), 1);
         assert_eq!(cfg.templates[0].name, "H5P9");
         assert_eq!(cfg.templates[0].signatures.len(), 2);
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        // tmp is automatically cleaned up when dropped
     }
 
     #[test]
     fn legacy_schema_is_backed_up_and_replaced() {
-        let path = unique_tmp();
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("templates.toml");
         // Pre-existing file with the v0.0.1 single-signature schema.
         std::fs::write(
             &path,
@@ -219,7 +211,6 @@ height = 40.0
             .filter_map(Result::ok)
             .any(|e| e.file_name().to_string_lossy().contains(".bak."));
         assert!(saw_bak, "legacy file should be renamed to .bak.<ts>");
-
-        std::fs::remove_dir_all(parent).ok();
+        // tmp is automatically cleaned up when dropped
     }
 }

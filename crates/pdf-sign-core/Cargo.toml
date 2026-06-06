@@ -16,3 +16,4 @@ flate2 = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+tempfile = "3"

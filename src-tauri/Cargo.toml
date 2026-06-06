@@ -24,3 +24,6 @@ toml = { workspace = true }
 thiserror = { workspace = true }
 dirs = "5"
 pdf-sign-core = { path = "../crates/pdf-sign-core" }
+
+[dev-dependencies]
+tempfile = "3"

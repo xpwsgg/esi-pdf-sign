@@ -251,6 +251,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn sign_pdf_returns_output_write_failed_on_readonly_dir() {
         // Strategy: copy the input PDF into a read-only directory, then sign
         // it — `sign_pdf` will try to `mkdir <tmp>/signed` and fail on the
@@ -263,31 +264,30 @@ mod tests {
             return;
         }
 
-        let tmp = std::env::temp_dir().join("pdf-sign-core-ro-test");
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-        let pdf_in_tmp = tmp.join("input.pdf");
+        let tmp = tempfile::tempdir().unwrap();
+        let tmp_path = tmp.path();
+        let pdf_in_tmp = tmp_path.join("input.pdf");
         std::fs::copy(&input_master, &pdf_in_tmp).unwrap();
 
         // chmod 0o555 (read+exec, no write) on the directory
         use std::os::unix::fs::PermissionsExt;
-        let mut perm = std::fs::metadata(&tmp).unwrap().permissions();
+        let mut perm = std::fs::metadata(tmp_path).unwrap().permissions();
         perm.set_mode(0o555);
-        std::fs::set_permissions(&tmp, perm.clone()).unwrap();
+        std::fs::set_permissions(tmp_path, perm.clone()).unwrap();
 
         let res = sign_pdf(&pdf_in_tmp, &[(&default_spec(), &sig)]);
 
         // Restore permissions before assertion so cleanup never gets stuck.
-        let mut restore = std::fs::metadata(&tmp).unwrap().permissions();
+        let mut restore = std::fs::metadata(tmp_path).unwrap().permissions();
         restore.set_mode(0o755);
-        let _ = std::fs::set_permissions(&tmp, restore);
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::set_permissions(tmp_path, restore);
 
         let err = res.expect_err("read-only dir should fail to write output");
         assert!(
             matches!(err, SignError::OutputWriteFailed { .. }),
             "expected OutputWriteFailed, got {err:?}"
         );
+        // tmp is automatically cleaned up when dropped
     }
 
     #[test]
