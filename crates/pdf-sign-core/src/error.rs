@@ -52,4 +52,10 @@ pub enum SignError {
 
     #[error("No QTY worktime table found in any page at {path}")]
     WorktimeTableNotFound { path: PathBuf },
+
+    #[error("No QTY worktime table found in any page at {path} (page decode errors: {decode_errors})")]
+    WorktimeTableNotFoundWithDecodeErrors { path: PathBuf, decode_errors: String },
+
+    #[error("PDF structure error at {path}: {detail}")]
+    PdfStructureError { path: PathBuf, detail: String },
 }

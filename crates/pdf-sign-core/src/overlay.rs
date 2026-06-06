@@ -53,8 +53,8 @@ pub(crate) fn overlay_signature_on_page(
         total,
     })?;
 
-    register_xobject_in_page_resources(doc, page_id, xobject_name, main_id);
-    append_draw_op_to_page_contents(doc, page_id, xobject_name, placement);
+    register_xobject_in_page_resources(doc, page_id, xobject_name, main_id, pdf_path)?;
+    append_draw_op_to_page_contents(doc, page_id, xobject_name, placement, pdf_path)?;
     Ok(())
 }
 
@@ -118,7 +118,8 @@ fn register_xobject_in_page_resources(
     page_id: ObjectId,
     name: &[u8],
     xobject_id: ObjectId,
-) {
+    pdf_path: &Path,
+) -> Result<(), SignError> {
     // Resolve Resources to (target_dict_id, dict_owned_clone).
     // We need to either modify Resources inline on the page, or modify the
     // referenced Resources object.
@@ -131,16 +132,22 @@ fn register_xobject_in_page_resources(
 
     match page_resources_obj {
         Some(Object::Reference(res_id)) => {
-            add_xobject_into_dict_object(doc, res_id, name, xobject_id);
+            add_xobject_into_dict_object(doc, res_id, name, xobject_id, pdf_path)?;
         }
         Some(Object::Dictionary(_)) | None => {
             // modify inline / create new
-            let page = doc.get_object_mut(page_id).expect("page exists");
-            let page_dict = page.as_dict_mut().expect("page is dict");
+            let page = doc.get_object_mut(page_id).map_err(|_| SignError::PdfStructureError {
+                path: pdf_path.to_path_buf(),
+                detail: format!("Page object {:?} does not exist", page_id),
+            })?;
+            let page_dict = page.as_dict_mut().map_err(|_| SignError::PdfStructureError {
+                path: pdf_path.to_path_buf(),
+                detail: format!("Page object {:?} is not a dictionary", page_id),
+            })?;
             let mut resources = page_dict
                 .get(b"Resources")
                 .ok()
-                .and_then(|o| o.as_dict().ok())
+                .and_then(|o: &Object| o.as_dict().ok())
                 .cloned()
                 .unwrap_or_else(Dictionary::new);
             add_xobject_into_resources_dict(&mut resources, name, xobject_id);
@@ -148,13 +155,20 @@ fn register_xobject_in_page_resources(
         }
         Some(_) => {
             // Unexpected Resources type; create a fresh inline dict.
-            let page = doc.get_object_mut(page_id).expect("page exists");
-            let page_dict = page.as_dict_mut().expect("page is dict");
+            let page = doc.get_object_mut(page_id).map_err(|_| SignError::PdfStructureError {
+                path: pdf_path.to_path_buf(),
+                detail: format!("Page object {:?} does not exist", page_id),
+            })?;
+            let page_dict = page.as_dict_mut().map_err(|_| SignError::PdfStructureError {
+                path: pdf_path.to_path_buf(),
+                detail: format!("Page object {:?} is not a dictionary", page_id),
+            })?;
             let mut resources = Dictionary::new();
             add_xobject_into_resources_dict(&mut resources, name, xobject_id);
             page_dict.set("Resources", Object::Dictionary(resources));
         }
     }
+    Ok(())
 }
 
 fn add_xobject_into_dict_object(
@@ -162,10 +176,18 @@ fn add_xobject_into_dict_object(
     dict_id: ObjectId,
     name: &[u8],
     xobject_id: ObjectId,
-) {
-    let obj = doc.get_object_mut(dict_id).expect("resources exists");
-    let dict = obj.as_dict_mut().expect("resources is dict");
+    pdf_path: &Path,
+) -> Result<(), SignError> {
+    let obj = doc.get_object_mut(dict_id).map_err(|_| SignError::PdfStructureError {
+        path: pdf_path.to_path_buf(),
+        detail: format!("Referenced Resources object {:?} does not exist", dict_id),
+    })?;
+    let dict = obj.as_dict_mut().map_err(|_| SignError::PdfStructureError {
+        path: pdf_path.to_path_buf(),
+        detail: format!("Referenced Resources object {:?} is not a dictionary", dict_id),
+    })?;
     add_xobject_into_resources_dict(dict, name, xobject_id);
+    Ok(())
 }
 
 fn add_xobject_into_resources_dict(
@@ -189,7 +211,8 @@ fn append_draw_op_to_page_contents(
     page_id: ObjectId,
     name: &[u8],
     placement: &Placement,
-) {
+    pdf_path: &Path,
+) -> Result<(), SignError> {
     let name_str = std::str::from_utf8(name).expect("xobject name is ASCII");
     // PDF content stream: q [save state] cm [transform] Do [draw XObject] Q [restore]
     // cm matrix: width 0 0 height x y  → maps 1×1 unit square to (x,y)-(x+w,y+h)
@@ -204,8 +227,14 @@ fn append_draw_op_to_page_contents(
     let stream = Stream::new(dictionary! {}, content_str.into_bytes());
     let new_content_id = doc.add_object(stream);
 
-    let page = doc.get_object_mut(page_id).expect("page exists");
-    let page_dict = page.as_dict_mut().expect("page is dict");
+    let page = doc.get_object_mut(page_id).map_err(|_| SignError::PdfStructureError {
+        path: pdf_path.to_path_buf(),
+        detail: format!("Page object {:?} does not exist", page_id),
+    })?;
+    let page_dict = page.as_dict_mut().map_err(|_| SignError::PdfStructureError {
+        path: pdf_path.to_path_buf(),
+        detail: format!("Page object {:?} is not a dictionary", page_id),
+    })?;
     let merged = match page_dict.get(b"Contents").cloned() {
         Ok(Object::Reference(r)) => Object::Array(vec![
             Object::Reference(r),
@@ -218,4 +247,5 @@ fn append_draw_op_to_page_contents(
         _ => Object::Reference(new_content_id),
     };
     page_dict.set("Contents", merged);
+    Ok(())
 }
