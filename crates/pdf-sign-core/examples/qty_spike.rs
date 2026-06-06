@@ -105,7 +105,7 @@ fn scan(content: &Content) -> Vec<Chunk> {
                     num(&op.operands[4]),
                     num(&op.operands[5]),
                 ];
-                tm = Mat(m.clone());
+                tm = Mat(m);
                 tlm = Mat(m);
             }
             "Td" if op.operands.len() == 2 => {

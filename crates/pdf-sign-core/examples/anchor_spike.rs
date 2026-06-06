@@ -96,7 +96,7 @@ fn collect_capital_tj(operands: &[Object], chunks: &mut Vec<AsciiChunk>, tm: &Ma
 
 fn find_anchor(chunks: &[AsciiChunk], needle: &str) -> Option<(f64, f64, String)> {
     for c in chunks {
-        if c.text.find(needle).is_some() {
+        if c.text.contains(needle) {
             // 起始字符就在这个 chunk 内: 简化起见, 先返回 chunk 起点(idx=0 时精确;
             // idx>0 时近似——但根据实际PDF排版,标签通常是一次 Tj 完成的,idx=0)
             return Some((c.x, c.y, c.text.clone()));
