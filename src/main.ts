@@ -201,7 +201,13 @@ function renderWorktime(batch: CmdWorktimeBatch) {
   worktimeSection.removeAttribute("hidden")
 }
 
+// Monotonic request id: each PDF (re)selection bumps this. An in-flight
+// extraction only renders if its id still matches — so a slow earlier request
+// can't overwrite the panel with stale data after a faster later one.
+let worktimeReqId = 0
+
 async function loadWorktimes(): Promise<void> {
+  const reqId = ++worktimeReqId
   if (state.pdfPaths.length === 0) {
     worktimeSection.setAttribute("hidden", "")
     return
@@ -217,8 +223,10 @@ async function loadWorktimes(): Promise<void> {
     const batch: CmdWorktimeBatch = await invoke("extract_worktimes_cmd", {
       pdfPaths: state.pdfPaths,
     })
+    if (reqId !== worktimeReqId) return // superseded by a newer selection
     renderWorktime(batch)
   } catch (err) {
+    if (reqId !== worktimeReqId) return // superseded by a newer selection
     worktimeBody.innerHTML = ""
     const e = document.createElement("div")
     e.className = "wt-error"
