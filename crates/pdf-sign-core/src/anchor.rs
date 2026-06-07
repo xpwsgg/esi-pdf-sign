@@ -15,21 +15,33 @@ pub(crate) fn find_anchor_baseline(
     page_index: usize,
     anchor_text: &str,
 ) -> Result<(f64, f64), SignError> {
-    // Try the specified page first (for backwards compatibility and performance)
-    if let Ok(chunks) = page_chunks(doc, pdf_path, page_index) {
+    let pages = doc.get_pages();
+    let total_pages = pages.len();
+
+    // Strategy: signature anchors are typically on the last page.
+    // Search order: last page → specified page → all other pages
+
+    // 1. Try the last page first (most common case for signatures)
+    let last_page_index = total_pages.saturating_sub(1);
+    if let Ok(chunks) = page_chunks(doc, pdf_path, last_page_index) {
         if let Some(pos) = locate(&chunks, anchor_text) {
             return Ok(pos);
         }
     }
 
-    // If not found on the specified page, search all pages
-    // This handles cases where PDFs have varying page counts (e.g., H5R5 has 3 pages vs H5R30 has 2 pages)
-    let pages = doc.get_pages();
-    let total_pages = pages.len();
+    // 2. Try the specified page (for backwards compatibility)
+    if page_index != last_page_index {
+        if let Ok(chunks) = page_chunks(doc, pdf_path, page_index) {
+            if let Some(pos) = locate(&chunks, anchor_text) {
+                return Ok(pos);
+            }
+        }
+    }
 
+    // 3. Search all remaining pages as fallback
     for idx in 0..total_pages {
-        // Skip the page we already checked
-        if idx == page_index {
+        // Skip pages we already checked
+        if idx == last_page_index || idx == page_index {
             continue;
         }
 
