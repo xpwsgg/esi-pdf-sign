@@ -352,6 +352,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn sign_pdf_finds_anchor_on_any_page_when_page_index_wrong() {
+        // Regression test: H5R5 has 3 pages with the signature anchor on page 3,
+        // but the config specifies page_index=1 (page 2). The anchor finder should
+        // search all pages as a fallback.
+        let root = workspace_root();
+        let input = root.join("H5P9-五月.pdf");
+        let sig = root.join("fixtures/zhang-xiang.png");
+        if !input.exists() || !sig.exists() {
+            eprintln!("test inputs not found, skipping");
+            return;
+        }
+
+        // Deliberately use the wrong page index (page 0 instead of page 1)
+        let spec = SignSpec {
+            page_index: 0, // Wrong page, but should still find anchor on page 1
+            anchor_text: "ESI Engineer's Signature".to_string(),
+            dx: 0.0,
+            dy: 22.634,
+            width: 106.7,
+            height: 40.0,
+        };
+
+        let out = sign_pdf(&input, &[(&spec, &sig)]).expect("should find anchor on any page");
+        assert!(out.exists(), "output should exist at {out:?}");
+
+        // Verify the output is valid
+        let in_size = std::fs::metadata(&input).unwrap().len();
+        let out_size = std::fs::metadata(&out).unwrap().len();
+        assert!(
+            out_size > in_size,
+            "output ({out_size}B) should be larger than input ({in_size}B) due to image embed"
+        );
+    }
+
     // ---- sign_pdfs batch behavior (design §2.2 流程级约束) ----
 
     #[test]
