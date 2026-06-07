@@ -49,14 +49,14 @@ pub fn sign_pdf(
     })?;
 
     for (i, (spec, sig_png)) in signatures.iter().enumerate() {
-        let (ax, ay) = anchor::find_anchor_baseline(
+        let (found_page_index, ax, ay) = anchor::find_anchor_baseline(
             &doc,
             pdf_path,
             spec.page_index,
             &spec.anchor_text,
         )?;
         let placement = overlay::Placement {
-            page_index: spec.page_index,
+            page_index: found_page_index,  // Use the actual page where anchor was found
             x: ax as f32 + spec.dx,
             y: ay as f32 + spec.dy,
             width: spec.width,
