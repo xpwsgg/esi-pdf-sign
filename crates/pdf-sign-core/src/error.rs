@@ -28,6 +28,17 @@ pub enum SignError {
         source: std::io::Error,
     },
 
+    #[error("Signature image at {path} is too large: {width}x{height} pixels (max {max_width}x{max_height}), file size {file_size_mb:.2}MB (max {max_file_size_mb}MB)")]
+    ImageTooLarge {
+        path: PathBuf,
+        width: u32,
+        height: u32,
+        max_width: u32,
+        max_height: u32,
+        file_size_mb: f64,
+        max_file_size_mb: u32,
+    },
+
     #[error("Failed to write output PDF at {path}: {source}")]
     OutputWriteFailed {
         path: PathBuf,
@@ -48,6 +59,14 @@ pub enum SignError {
         path: PathBuf,
         anchor: String,
         page_index: usize,
+    },
+
+    #[error("Anchor text {anchor:?} not found on page {page_index} at {path} (page decode errors: {decode_errors})")]
+    AnchorNotFoundWithDecodeErrors {
+        path: PathBuf,
+        anchor: String,
+        page_index: usize,
+        decode_errors: String,
     },
 
     #[error("No QTY worktime table found in any page at {path}")]

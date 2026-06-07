@@ -97,25 +97,41 @@ pub(crate) fn load_or_create_at(path: &std::path::Path) -> Result<AppConfig, Con
     })?;
     match toml::from_str::<AppConfig>(&raw) {
         Ok(cfg) => Ok(cfg),
-        Err(_parse_err) => {
-            // Schema mismatch — usually from an upgrade. Move the old file
-            // aside (so any user-tuned dx/dy can still be recovered) and
-            // rewrite with the current default TOML so the app keeps
-            // working without a manual `rm`.
-            let backup = backup_path(path);
-            fs::rename(path, &backup).map_err(|e| ConfigError::Io {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
-            write_default(path)?;
-            let raw = fs::read_to_string(path).map_err(|e| ConfigError::Io {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
-            toml::from_str(&raw).map_err(|e| ConfigError::Parse {
-                path: path.to_path_buf(),
-                message: format!("bundled default TOML is invalid (bug): {e}"),
-            })
+        Err(parse_err) => {
+            // Try to detect if this is a legacy schema we can migrate vs. a user error.
+            // Legacy v0.0.1 used `[template.signature]` (singular object) instead of
+            // `[[template.signature]]` (array). If we can parse the raw TOML as a generic
+            // value and detect this pattern, we auto-migrate. Otherwise, return the error
+            // to the user so they can fix their config.
+
+            if is_legacy_schema(&raw) {
+                // Schema mismatch from an upgrade. Move the old file aside
+                // (so any user-tuned dx/dy can still be recovered) and rewrite
+                // with the current default TOML.
+                let backup = backup_path(path);
+                fs::rename(path, &backup).map_err(|e| ConfigError::Io {
+                    path: path.to_path_buf(),
+                    source: e,
+                })?;
+                write_default(path)?;
+                let raw = fs::read_to_string(path).map_err(|e| ConfigError::Io {
+                    path: path.to_path_buf(),
+                    source: e,
+                })?;
+                toml::from_str(&raw).map_err(|e| ConfigError::Parse {
+                    path: path.to_path_buf(),
+                    message: format!("bundled default TOML is invalid (bug): {e}"),
+                })
+            } else {
+                // User configuration error — return it clearly without backup.
+                Err(ConfigError::Parse {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "Invalid configuration syntax. Please check your templates.toml. Error: {}",
+                        parse_err
+                    ),
+                })
+            }
         }
     }
 }
@@ -131,6 +147,16 @@ fn write_default(path: &std::path::Path) -> Result<(), ConfigError> {
         path: path.to_path_buf(),
         source: e,
     })
+}
+
+/// Detect if the TOML content looks like the legacy v0.0.1 schema with
+/// `[template.signature]` (singular object) instead of `[[template.signature]]` (array).
+fn is_legacy_schema(toml_content: &str) -> bool {
+    // Legacy schema uses `[template.signature]` (table) not `[[template.signature]]` (array).
+    // This is a heuristic: if we see `[template.signature]` and NOT `[[template.signature]]`,
+    // it's likely the old schema.
+    toml_content.contains("[template.signature]")
+        && !toml_content.contains("[[template.signature]]")
 }
 
 fn backup_path(path: &std::path::Path) -> PathBuf {
@@ -211,6 +237,51 @@ height = 40.0
             .filter_map(Result::ok)
             .any(|e| e.file_name().to_string_lossy().contains(".bak."));
         assert!(saw_bak, "legacy file should be renamed to .bak.<ts>");
+        // tmp is automatically cleaned up when dropped
+    }
+
+    #[test]
+    fn user_config_error_returns_clear_message() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("templates.toml");
+        // User typo: page_index as string instead of integer.
+        std::fs::write(
+            &path,
+            r#"
+[[template]]
+name = "H5P9"
+match_pages = 2
+
+[[template.signature]]
+role = "engineer"
+page_index = "one"
+anchor_text = "ESI Engineer's Signature"
+dx = 0.0
+dy = 22.634
+width = 106.7
+height = 40.0
+"#,
+        )
+        .unwrap();
+
+        let result = load_or_create_at(&path);
+
+        // Should fail with a clear parse error, NOT auto-backup.
+        assert!(result.is_err(), "user config error should fail");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Invalid configuration syntax"),
+            "error message should guide user: {err_msg}"
+        );
+
+        // Original file should still exist (not moved to .bak).
+        assert!(path.exists(), "user config should not be moved on error");
+        let parent = path.parent().unwrap();
+        let saw_bak = std::fs::read_dir(parent)
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|e| e.file_name().to_string_lossy().contains(".bak."));
+        assert!(!saw_bak, "no backup should be created for user errors");
         // tmp is automatically cleaned up when dropped
     }
 }

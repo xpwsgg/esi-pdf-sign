@@ -58,6 +58,17 @@ pub async fn sign_pdfs_cmd(
     if owned.is_empty() {
         return Err("no signature PNG provided for any role in this template".into());
     }
+
+    // Validate all SignSpec parameters before processing any PDFs
+    for (spec, _) in &owned {
+        if let Err(validation_err) = spec.validate() {
+            return Err(format!(
+                "Invalid signature specification in template '{}': {}",
+                template_name, validation_err
+            ));
+        }
+    }
+
     let sig_refs: Vec<(&SignSpec, &Path)> = owned.iter().map(|(s, p)| (*s, p.as_path())).collect();
 
     let inputs: Vec<PathBuf> = pdf_paths.iter().map(PathBuf::from).collect();

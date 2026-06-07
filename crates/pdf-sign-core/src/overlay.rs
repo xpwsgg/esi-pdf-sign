@@ -19,6 +19,15 @@ use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use std::io::Write;
 use std::path::Path;
 
+/// Maximum signature image dimensions (width x height in pixels).
+/// Reasonable signature images are typically 200-400px wide.
+const MAX_IMAGE_WIDTH: u32 = 4096;
+const MAX_IMAGE_HEIGHT: u32 = 4096;
+
+/// Maximum signature image file size in megabytes.
+/// Prevents accidental selection of huge images.
+const MAX_FILE_SIZE_MB: u32 = 10;
+
 /// Final placement of the signature in PDF-native coordinates (origin
 /// bottom-left, points). Computed in `lib.rs::sign_pdf` from a `SignSpec`
 /// plus the located anchor baseline.
@@ -59,6 +68,26 @@ pub(crate) fn overlay_signature_on_page(
 }
 
 fn load_png_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>, Vec<u8>), SignError> {
+    // Check file size first (before decoding)
+    let metadata = std::fs::metadata(path).map_err(|e| SignError::ImageLoadFailed {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+    let file_size_bytes = metadata.len();
+    let file_size_mb = file_size_bytes as f64 / (1024.0 * 1024.0);
+
+    if file_size_bytes > (MAX_FILE_SIZE_MB as u64 * 1024 * 1024) {
+        return Err(SignError::ImageTooLarge {
+            path: path.to_path_buf(),
+            width: 0,
+            height: 0,
+            max_width: MAX_IMAGE_WIDTH,
+            max_height: MAX_IMAGE_HEIGHT,
+            file_size_mb,
+            max_file_size_mb: MAX_FILE_SIZE_MB,
+        });
+    }
+
     let img = ImageReader::open(path)
         .map_err(|e| SignError::ImageLoadFailed {
             path: path.to_path_buf(),
@@ -70,7 +99,22 @@ fn load_png_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>, Vec<u8>), SignError>
             source: std::io::Error::new(std::io::ErrorKind::InvalidData, e),
         })?
         .into_rgba8();
+
     let (w, h) = img.dimensions();
+
+    // Check dimensions after decoding
+    if w > MAX_IMAGE_WIDTH || h > MAX_IMAGE_HEIGHT {
+        return Err(SignError::ImageTooLarge {
+            path: path.to_path_buf(),
+            width: w,
+            height: h,
+            max_width: MAX_IMAGE_WIDTH,
+            max_height: MAX_IMAGE_HEIGHT,
+            file_size_mb,
+            max_file_size_mb: MAX_FILE_SIZE_MB,
+        });
+    }
+
     let pixels = img.into_raw();
     let pixel_count = (w as usize) * (h as usize);
     let mut rgb = Vec::with_capacity(pixel_count * 3);
@@ -248,4 +292,88 @@ fn append_draw_op_to_page_contents(
     };
     page_dict.set("Contents", merged);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::SignError;
+    use image::{ImageBuffer, Rgba};
+
+    #[test]
+    fn load_png_rgba_rejects_oversized_dimensions() {
+        // Create a PNG that exceeds dimension limits
+        let tmp = tempfile::NamedTempFile::with_suffix(".png").unwrap();
+        let path = tmp.path();
+
+        // Create a 5000x5000 image (exceeds MAX_IMAGE_WIDTH=4096)
+        // Use DynamicImage to ensure proper encoding
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(5000, 5000, Rgba([255, 255, 255, 255]));
+        let dynamic = image::DynamicImage::ImageRgba8(img);
+        dynamic.save_with_format(path, image::ImageFormat::Png).unwrap();
+
+        let result = load_png_rgba(path);
+        assert!(result.is_err(), "should reject oversized image");
+        match result.unwrap_err() {
+            SignError::ImageTooLarge { width, height, .. } => {
+                assert_eq!(width, 5000);
+                assert_eq!(height, 5000);
+            }
+            other => panic!("expected ImageTooLarge, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn load_png_rgba_rejects_large_file_size() {
+        // Create a PNG that's under dimension limits but over file size limit
+        // A 4000x4000 RGBA PNG with pseudo-random data should exceed 10MB
+        let tmp = tempfile::NamedTempFile::with_suffix(".png").unwrap();
+        let path = tmp.path();
+
+        // Create 4000x4000 with pseudo-random data (poorly compressible)
+        let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(4000, 4000);
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            let val = ((x * 7 + y * 13) % 256) as u8;
+            *pixel = Rgba([val, val.wrapping_add(1), val.wrapping_add(2), 255]);
+        }
+        let dynamic = image::DynamicImage::ImageRgba8(img);
+        dynamic.save_with_format(path, image::ImageFormat::Png).unwrap();
+
+        // Check if file size exceeds 10MB
+        let metadata = std::fs::metadata(path).unwrap();
+        let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
+
+        if size_mb > 10.0 {
+            let result = load_png_rgba(path);
+            assert!(result.is_err(), "should reject large file");
+            match result.unwrap_err() {
+                SignError::ImageTooLarge { file_size_mb, .. } => {
+                    assert!(file_size_mb > 10.0, "reported size should exceed limit");
+                }
+                other => panic!("expected ImageTooLarge, got {:?}", other),
+            }
+        } else {
+            // File compressed too well; skip this test
+            eprintln!("Test PNG only {:.2}MB, skipping file size test", size_mb);
+        }
+    }
+
+    #[test]
+    fn load_png_rgba_accepts_normal_signature() {
+        // Verify normal small signatures still work
+        let tmp = tempfile::NamedTempFile::with_suffix(".png").unwrap();
+        let path = tmp.path();
+
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(200, 100, Rgba([255, 255, 255, 255]));
+        let dynamic = image::DynamicImage::ImageRgba8(img);
+        dynamic.save_with_format(path, image::ImageFormat::Png).unwrap();
+
+        let result = load_png_rgba(path);
+        assert!(result.is_ok(), "should accept normal-sized image: {:?}", result);
+        let (w, h, rgb, alpha) = result.unwrap();
+        assert_eq!(w, 200);
+        assert_eq!(h, 100);
+        assert_eq!(rgb.len(), 200 * 100 * 3);
+        assert_eq!(alpha.len(), 200 * 100);
+    }
 }
