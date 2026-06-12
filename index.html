@@ -21,7 +21,10 @@
               <span id="pdf-summary" class="meta">尚未选择</span>
             </div>
           </div>
-          <button id="pick-pdfs" class="btn btn-secondary">浏览 PDF…</button>
+          <div class="step-actions">
+            <button id="pick-pdf-single" class="btn btn-ghost">添加单个</button>
+            <button id="pick-pdfs" class="btn btn-secondary">批量选择…</button>
+          </div>
         </div>
 
         <div class="step">
@@ -53,6 +56,10 @@
         </div>
         <div class="action-row">
           <button id="sign" class="btn btn-primary" disabled>开始签名</button>
+          <label class="checkbox-label">
+            <input type="checkbox" id="delete-source" class="checkbox" />
+            <span>删除源文件（移至回收站）</span>
+          </label>
           <span id="status" class="status"></span>
         </div>
       </section>

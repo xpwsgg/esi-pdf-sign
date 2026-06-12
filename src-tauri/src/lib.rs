@@ -11,7 +11,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::sign_pdfs_cmd,
-            commands::extract_worktimes_cmd
+            commands::extract_worktimes_cmd,
+            commands::delete_file_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

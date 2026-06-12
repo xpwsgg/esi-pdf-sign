@@ -169,3 +169,20 @@ pub async fn extract_worktimes_cmd(
 
     Ok(CmdWorktimeBatch { items, grand_total })
 }
+
+/// Tauri command: move a file to trash/recycle bin.
+///
+/// Returns Ok(true) if the file was moved to trash, Ok(false) if the file didn't exist,
+/// or Err if the operation failed for other reasons.
+#[tauri::command]
+pub async fn delete_file_cmd(file_path: String) -> Result<bool, String> {
+    let path = PathBuf::from(file_path);
+
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    trash::delete(&path)
+        .map(|_| true)
+        .map_err(|e| format!("移动到回收站失败: {}", e))
+}

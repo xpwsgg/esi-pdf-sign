@@ -75,11 +75,13 @@ function $<T extends HTMLElement>(id: string): T {
 }
 
 const pickPdfsBtn = $<HTMLButtonElement>("pick-pdfs")
+const pickPdfSingleBtn = $<HTMLButtonElement>("pick-pdf-single")
 const pickEngineerSigBtn = $<HTMLButtonElement>("pick-engineer-signature")
 const pickCustomerSigBtn = $<HTMLButtonElement>("pick-customer-signature")
 const clearEngineerSigBtn = $<HTMLButtonElement>("clear-engineer-signature")
 const clearCustomerSigBtn = $<HTMLButtonElement>("clear-customer-signature")
 const signBtn = $<HTMLButtonElement>("sign")
+const deleteSourceCheckbox = $<HTMLInputElement>("delete-source")
 const pdfSummary = $("pdf-summary")
 const engineerSigPath = $("engineer-sig-path")
 const customerSigPath = $("customer-sig-path")
@@ -111,6 +113,16 @@ function updatePdfSummary() {
   }
 }
 
+function removePdfByPath(pdfPath: string) {
+  const index = state.pdfPaths.indexOf(pdfPath)
+  if (index === -1) return
+
+  state.pdfPaths.splice(index, 1)
+  updatePdfSummary()
+  updateSignEnabled()
+  void loadWorktimes()
+}
+
 function updateSigSummaries() {
   engineerSigPath.textContent = state.engineerSignaturePath
     ? basename(state.engineerSignaturePath)
@@ -132,6 +144,22 @@ pickPdfsBtn.addEventListener("click", async () => {
   updatePdfSummary()
   updateSignEnabled()
   void loadWorktimes()
+})
+
+pickPdfSingleBtn.addEventListener("click", async () => {
+  const picked = await open({
+    multiple: false,
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  })
+  if (!picked || Array.isArray(picked)) return
+
+  // 检查是否已存在
+  if (!state.pdfPaths.includes(picked)) {
+    state.pdfPaths.push(picked)
+    updatePdfSummary()
+    updateSignEnabled()
+    void loadWorktimes()
+  }
 })
 
 function renderWorktime(batch: CmdWorktimeBatch) {
@@ -165,6 +193,18 @@ function renderWorktime(batch: CmdWorktimeBatch) {
       sub.className = "wt-subtotal"
       sub.textContent = `${item.total ?? 0} 小时`
       head.appendChild(sub)
+
+      // 添加删除按钮
+      const removeBtn = document.createElement("button")
+      removeBtn.className = "btn-remove-file"
+      removeBtn.textContent = "删除"
+      removeBtn.title = "从列表中删除此文件"
+      const pdfPath = item.input
+      removeBtn.addEventListener("click", () => {
+        removePdfByPath(pdfPath)
+      })
+      head.appendChild(removeBtn)
+
       block.appendChild(head)
 
       const rows = item.rows ?? []
@@ -317,12 +357,15 @@ function renderResultItem(r: CmdSignResult) {
 signBtn.addEventListener("click", async () => {
   if (state.engineerSignaturePath === null || state.pdfPaths.length === 0) return
 
+  const shouldDeleteSource = deleteSourceCheckbox.checked
+
   signBtn.disabled = true
   pickPdfsBtn.disabled = true
   pickEngineerSigBtn.disabled = true
   pickCustomerSigBtn.disabled = true
   clearEngineerSigBtn.disabled = true
   clearCustomerSigBtn.disabled = true
+  deleteSourceCheckbox.disabled = true
   resultsList.innerHTML = ""
   resultsSection.removeAttribute("hidden")
   statusEl.textContent = `0/${state.pdfPaths.length}…`
@@ -346,6 +389,19 @@ signBtn.addEventListener("click", async () => {
       signaturePaths,
       templateName: TEMPLATE_NAME,
     })
+
+    // 如果勾选了删除源文件，删除所有签名成功的源文件
+    if (shouldDeleteSource) {
+      const successfulInputs = results.filter((r) => r.output).map((r) => r.input)
+      for (const inputPath of successfulInputs) {
+        try {
+          await invoke("delete_file_cmd", { filePath: inputPath })
+        } catch (err) {
+          console.error(`删除源文件失败 ${inputPath}:`, err)
+        }
+      }
+    }
+
     const okCount = results.filter((r) => r.output).length
     const errCount = results.length - okCount
     statusEl.textContent =
@@ -364,6 +420,7 @@ signBtn.addEventListener("click", async () => {
     pickCustomerSigBtn.disabled = false
     clearEngineerSigBtn.disabled = false
     clearCustomerSigBtn.disabled = false
+    deleteSourceCheckbox.disabled = false
     updateSignEnabled()
   }
 })
