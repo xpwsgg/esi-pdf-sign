@@ -109,6 +109,19 @@ const QTY_COLUMN_X_TOL: f64 = 20.0;
 /// columns are offset by ~8.5pt, so a tight y tolerance keeps them out.
 const ROW_Y_TOL: f64 = 3.0;
 
+/// Only these line items count toward the worktime total; every other QTY row
+/// (parts, miscellaneous charges, …) is discarded.
+const COUNTED_DESCRIPTIONS: [&str; 2] = ["SERVICE FSE TRAVEL TIME", "SERVICE FSE STANDARD LABOR"];
+
+/// A row counts only when its description matches one of [`COUNTED_DESCRIPTIONS`]
+/// (case-insensitive, whitespace-collapsed to tolerate PDF spacing quirks).
+fn is_counted_description(description: &str) -> bool {
+    let normalized: String = description.split_whitespace().collect::<Vec<_>>().join(" ");
+    COUNTED_DESCRIPTIONS
+        .iter()
+        .any(|wanted| normalized.eq_ignore_ascii_case(wanted))
+}
+
 fn worktime_from_page(chunks: &[Chunk]) -> Option<PdfWorktime> {
     // 1. Locate the QTY header dynamically (fixed x, floating y across reports).
     let qty = chunks.iter().find(|c| c.text.trim() == "QTY")?;
@@ -147,6 +160,12 @@ fn worktime_from_page(chunks: &[Chunk]) -> Option<PdfWorktime> {
         } else {
             String::new()
         };
+
+        // Only travel-time and standard-labour line items count; discard
+        // everything else (parts, charges, …) so it never reaches the total.
+        if !is_counted_description(&description) {
+            continue;
+        }
 
         rows.push((
             c.y,
@@ -220,6 +239,30 @@ mod tests {
         assert!((wt.rows[1].qty - 6.0).abs() < 1e-9);
         assert_eq!(wt.rows[1].part_number, "STANDARD_LABOR");
         assert_eq!(wt.rows[1].description, "SERVICE FSE STANDARD LABOR");
+    }
+
+    #[test]
+    fn discards_rows_outside_counted_descriptions() {
+        // Same as the synthetic page but with an extra QTY row (a part) that
+        // must be excluded from both the rows and the total.
+        let mut page = synthetic_page();
+        // row 3 @ y≈170.0 — a non-counted line item (e.g. a replacement part).
+        page.push(chunk(19.42, 170.0, "May 8, 2026"));
+        page.push(chunk(108.12, 170.0, "PART-12345"));
+        page.push(chunk(223.98, 170.0, "REPLACEMENT FILTER"));
+        page.push(chunk(443.56, 170.0, "5.0"));
+
+        let wt = worktime_from_page(&page).expect("QTY table should be found");
+        assert_eq!(wt.rows.len(), 2, "the non-counted part row is discarded");
+        assert!(
+            (wt.total - 8.0).abs() < 1e-9,
+            "total counts only travel + labour, got {}",
+            wt.total
+        );
+        assert!(wt
+            .rows
+            .iter()
+            .all(|r| r.description != "REPLACEMENT FILTER"));
     }
 
     #[test]
